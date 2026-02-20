@@ -25,6 +25,9 @@ from app.core.logging import setup_logging, get_logger
 from app.api.v1 import api_router
 from app.database import engine, Base
 
+# Logger for content restriction events
+_restriction_logger = get_logger("content_restrictions")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -133,6 +136,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         }
 
         if remaining <= 0:
+            _restriction_logger.warning(
+                "Rate limit exceeded",
+                client_key=client_key,
+                path=request.url.path,
+                limit=limit,
+            )
             return Response(
                 content='{"detail": "Rate limit exceeded. Try again later."}',
                 status_code=429,
@@ -203,6 +212,12 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 
             content_length = request.headers.get("content-length")
             if content_length and int(content_length) > max_bytes:
+                _restriction_logger.warning(
+                    "Request body too large",
+                    path=request.url.path,
+                    content_length=int(content_length),
+                    max_bytes=max_bytes,
+                )
                 return Response(
                     content=f'{{"detail": "Request body too large. Maximum: {max_bytes} bytes."}}',
                     status_code=413,
@@ -277,6 +292,38 @@ app.add_middleware(
 
 # Register API routes
 app.include_router(api_router)
+
+
+# --- Content Restriction Exception Handler ---
+
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(RequestValidationError)
+async def content_restriction_validation_handler(
+    request: Request, exc: RequestValidationError
+):
+    """Intercept Pydantic validation errors to log prompt injection blocks.
+
+    Any validation error whose message contains 'injection' is logged as a
+    content restriction event.  All validation errors are returned as 422.
+    """
+    for error in exc.errors():
+        msg = str(error.get("msg", ""))
+        if "injection" in msg.lower():
+            _restriction_logger.warning(
+                "Prompt injection blocked",
+                path=request.url.path,
+                field=str(error.get("loc", "")),
+                detail=msg[:200],
+            )
+
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
 
 
 # --- Public Health Check Endpoints ---

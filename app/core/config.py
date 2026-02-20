@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     rate_limit_researcher: int = Field(default=30, alias="RATE_LIMIT_RESEARCHER")
     rate_limit_admin: int = Field(default=100, alias="RATE_LIMIT_ADMIN")
 
+    # Ethical Safeguards
+    terms_validity_days: int = Field(default=90, alias="TERMS_VALIDITY_DAYS")
+    abuse_detection_std_devs: float = Field(
+        default=2.0, alias="ABUSE_DETECTION_STD_DEVS"
+    )
+
     # Encryption (AES-256 for API keys at rest)
     api_key_encryption_key: Optional[str] = Field(
         default=None, alias="API_KEY_ENCRYPTION_KEY"

@@ -9,13 +9,16 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, get_current_user, get_client_ip
+from app.core.deps import get_db, get_current_user, get_client_ip, validate_institutional_email
 from app.core.security import hash_password, verify_password, create_access_token, decode_access_token
 from app.core.validation import validate_password_strength
 from app.models.user import User
 from app.schemas.auth import UserRegister, UserLogin, TokenResponse, ChangePasswordRequest
 from app.schemas.user import UserResponse
 from app.services.audit import log_action
+from app.core.logging import get_logger
+
+logger = get_logger("auth_router")
 
 router = APIRouter()
 
@@ -47,6 +50,31 @@ def register(data: UserRegister, request: Request, db: Session = Depends(get_db)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists.",
+        )
+
+    # Verify institutional email domain
+    is_institutional, domain_msg = validate_institutional_email(data.email)
+    if not is_institutional:
+        logger.warning(
+            "Registration with non-institutional email",
+            email_domain=data.email.rsplit("@", 1)[-1],
+        )
+        log_action(
+            db,
+            None,
+            "ethics.non_institutional_email",
+            "user",
+            None,
+            details={
+                "email_domain": data.email.rsplit("@", 1)[-1],
+                "message": domain_msg,
+            },
+            ip_address=get_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=domain_msg,
         )
 
     user = User(
@@ -246,3 +274,31 @@ def change_password(
 def get_me(current_user: User = Depends(get_current_user)):
     """Get the current authenticated user's profile."""
     return current_user
+
+
+@router.post("/reaccept-terms")
+def reaccept_terms(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-accept the Terms of Use.
+
+    Required periodically (every 90 days by default) to continue using
+    generation features.  The new acceptance timestamp is stored on the
+    user record.
+    """
+    current_user.terms_accepted_at = datetime.now(timezone.utc)
+    db.commit()
+
+    log_action(
+        db,
+        current_user.id,
+        "user.reaccept_terms",
+        "user",
+        current_user.id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    return {"message": "Terms of Use re-accepted successfully"}

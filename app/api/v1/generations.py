@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, get_current_user, get_client_ip
+from app.core.deps import get_db, get_current_user, get_client_ip, require_terms_current
 from app.models.user import User
 from app.models.scenario import Scenario
 from app.models.template import Template
@@ -23,6 +23,7 @@ from app.services.audit import log_action
 from app.services.generation_service import generation_service
 from app.services.llm_service import llm_service
 from app.services.prompt_service import prompt_service
+from app.services.abuse_detection import check_user_abuse
 from app.core.logging import get_logger
 
 logger = get_logger("generations_router")
@@ -35,9 +36,11 @@ def create_generation(
     data: GenerationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_terms_current),
 ):
     """Generate a phishing message using the LLM pipeline.
+
+    Requires current Terms of Use acceptance.  Checks for anomalous usage.
 
     1. Validates scenario ownership and optional template access
     2. Constructs prompt via three-tier pipeline
@@ -45,6 +48,14 @@ def create_generation(
     4. Evaluates realism via secondary LLM call
     5. Stores complete results with scores
     """
+    # Abuse detection — flag anomalous generation volume
+    check_user_abuse(
+        db,
+        current_user.id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+
     # Verify scenario ownership
     scenario = (
         db.query(Scenario)

@@ -6,11 +6,12 @@ Endpoints for managing phishing message templates.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from pydantic import ValidationError
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, get_client_ip
 from app.models.user import User
 from app.models.template import Template
 from app.schemas.template import (
@@ -21,6 +22,9 @@ from app.schemas.template import (
 )
 from app.schemas.scenario import PretextCategory
 from app.services.audit import log_action
+from app.core.logging import get_logger
+
+logger = get_logger("templates_router")
 
 router = APIRouter()
 
@@ -85,10 +89,15 @@ def get_template(
 @router.post("/", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
 def create_template(
     data: TemplateCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a custom template."""
+    """Create a custom template.
+
+    Rejects prompts containing injection / jailbreak patterns and logs the
+    blocked attempt to the audit trail.
+    """
     template = Template(
         user_id=current_user.id,
         is_predefined=False,
@@ -98,7 +107,11 @@ def create_template(
     db.commit()
     db.refresh(template)
 
-    log_action(db, current_user.id, "template.create", "template", template.id)
+    log_action(
+        db, current_user.id, "template.create", "template", template.id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return template
 
 
@@ -106,10 +119,15 @@ def create_template(
 def update_template(
     template_id: UUID,
     data: TemplateUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Update a custom template (only owner can update)."""
+    """Update a custom template (only owner can update).
+
+    Rejects prompts containing injection / jailbreak patterns and logs the
+    blocked attempt to the audit trail.
+    """
     template = (
         db.query(Template)
         .filter(Template.id == template_id, Template.user_id == current_user.id)
@@ -131,7 +149,11 @@ def update_template(
     db.commit()
     db.refresh(template)
 
-    log_action(db, current_user.id, "template.update", "template", template.id)
+    log_action(
+        db, current_user.id, "template.update", "template", template.id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     return template
 
 

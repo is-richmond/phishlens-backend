@@ -23,6 +23,7 @@ from app.models.template import Template
 from app.schemas.user import UserResponse, UserUpdate
 from app.schemas.audit_log import AuditLogResponse, AuditLogListResponse
 from app.services.audit import log_action
+from app.services.abuse_detection import detect_anomalous_users, compute_usage_statistics
 
 router = APIRouter()
 
@@ -345,6 +346,30 @@ def list_action_types(
     """
     types = db.query(AuditLog.action_type).distinct().all()
     return [t[0] for t in types]
+
+
+# --- Abuse Detection ---
+
+
+@router.get("/abuse-detection")
+def get_abuse_alerts(
+    window_days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Detect users with anomalously high generation counts (admin only).
+
+    Flags users whose generation count exceeds ``mean + N × std_dev``
+    within the specified time window (default N = 2, window = 30 days).
+    """
+    stats = compute_usage_statistics(db, window_days)
+    flagged = detect_anomalous_users(db, window_days)
+
+    return {
+        "statistics": stats,
+        "flagged_users": flagged,
+        "flagged_count": len(flagged),
+    }
 
 
 # --- System Health ---
