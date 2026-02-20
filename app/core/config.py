@@ -50,6 +50,14 @@ class Settings(BaseSettings):
         default=2.0, alias="ABUSE_DETECTION_STD_DEVS"
     )
 
+    # Data Retention
+    retention_generation_months: int = Field(
+        default=12, alias="RETENTION_GENERATION_MONTHS"
+    )
+    retention_inactive_user_months: int = Field(
+        default=6, alias="RETENTION_INACTIVE_USER_MONTHS"
+    )
+
     # Encryption (AES-256 for API keys at rest)
     api_key_encryption_key: Optional[str] = Field(
         default=None, alias="API_KEY_ENCRYPTION_KEY"

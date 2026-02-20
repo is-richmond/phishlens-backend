@@ -24,6 +24,10 @@ from app.schemas.user import UserResponse, UserUpdate
 from app.schemas.audit_log import AuditLogResponse, AuditLogListResponse
 from app.services.audit import log_action
 from app.services.abuse_detection import detect_anomalous_users, compute_usage_statistics
+from app.services.data_retention import (
+    get_retention_summary,
+    run_full_retention_cycle,
+)
 
 router = APIRouter()
 
@@ -370,6 +374,57 @@ def get_abuse_alerts(
         "flagged_users": flagged,
         "flagged_count": len(flagged),
     }
+
+
+# --- Data Retention ---
+
+
+@router.get("/retention")
+def retention_summary(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Get data retention policy summary and records due for archival.
+
+    Shows generation/user counts that exceed the configured retention window
+    (12 months for generations, 6 months for inactive users).
+    """
+    return get_retention_summary(db)
+
+
+@router.post("/retention/run")
+def trigger_retention_cycle(
+    request: Request,
+    dry_run: bool = Query(True, description="Preview mode — no records are modified"),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Trigger a data retention cycle (admin only).
+
+    By default runs in ``dry_run=True`` mode which only counts records
+    without modifying data.  Set ``dry_run=false`` to perform actual
+    archival and user deactivation.
+    """
+    result = run_full_retention_cycle(
+        db,
+        admin_user_id=admin.id,
+        dry_run=dry_run,
+    )
+
+    log_action(
+        db,
+        admin.id,
+        "admin.retention_cycle",
+        details={
+            "dry_run": dry_run,
+            "generations_archived": result["generations_archived"]["count"],
+            "users_deactivated": result["users_deactivated"]["count"],
+        },
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    return result
 
 
 # --- System Health ---
