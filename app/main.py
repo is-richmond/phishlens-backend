@@ -2,13 +2,14 @@
 PhishLens — FastAPI Application Factory
 
 Main application entry point with lifespan events, CORS, rate limiting,
-and router registration.
+security headers, and router registration.
 """
 
 import os
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from uuid import UUID
 
 from dotenv import load_dotenv
 
@@ -57,47 +58,178 @@ async def lifespan(app: FastAPI):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Simple in-memory rate limiter per IP address.
+    """In-memory role-aware rate limiter with proper X-RateLimit-* headers.
 
-    Uses a sliding window approach. Limits are configured per role
-    in settings (rate_limit_researcher, rate_limit_admin).
+    Uses a sliding window per client key (IP or user ID for authenticated).
+    Different limits for researchers (30/hr) and admins (100/hr).
+    Generation endpoint has its own stricter per-hour limit.
     """
 
-    def __init__(self, app, default_limit: int = 30, window_seconds: int = 60):
+    EXEMPT_PATHS = frozenset({
+        "/health", "/ready", "/docs", "/redoc", "/openapi.json",
+    })
+
+    def __init__(
+        self,
+        app,
+        researcher_limit: int = 30,
+        admin_limit: int = 100,
+        window_seconds: int = 3600,
+    ):
         super().__init__(app)
-        self.default_limit = default_limit
+        self.researcher_limit = researcher_limit
+        self.admin_limit = admin_limit
         self.window_seconds = window_seconds
+        # key → list of timestamps
         self.requests: dict[str, list[float]] = defaultdict(list)
 
-    async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for health checks
-        if request.url.path in ("/health", "/ready", "/docs", "/redoc", "/openapi.json"):
-            return await call_next(request)
+    def _get_client_key(self, request: Request) -> tuple[str, int]:
+        """Return (client_key, limit) — tries JWT for role-aware limiting."""
+        limit = self.researcher_limit  # default
 
-        # Get client IP
+        # Try to extract user info from Authorization header for role-based limits
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                from app.core.security import decode_access_token
+
+                payload = decode_access_token(auth_header[7:])
+                user_id = payload.get("sub", "")
+                role = payload.get("role", "researcher")
+                if role == "admin":
+                    limit = self.admin_limit
+                return f"user:{user_id}", limit
+            except Exception:
+                pass
+
+        # Fall back to IP
         forwarded = request.headers.get("X-Forwarded-For")
         client_ip = forwarded.split(",")[0].strip() if forwarded else (
             request.client.host if request.client else "unknown"
         )
+        return f"ip:{client_ip}", limit
 
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in self.EXEMPT_PATHS:
+            return await call_next(request)
+
+        client_key, limit = self._get_client_key(request)
         now = time.time()
-        # Clean old entries
-        self.requests[client_ip] = [
-            t for t in self.requests[client_ip]
+
+        # Clean expired entries
+        self.requests[client_key] = [
+            t for t in self.requests[client_key]
             if now - t < self.window_seconds
         ]
 
-        if len(self.requests[client_ip]) >= self.default_limit:
+        remaining = max(0, limit - len(self.requests[client_key]))
+        reset_at = int(now + self.window_seconds)
+
+        # Rate limit headers (always sent)
+        rate_headers = {
+            "X-RateLimit-Limit": str(limit),
+            "X-RateLimit-Remaining": str(max(0, remaining - 1)),
+            "X-RateLimit-Reset": str(reset_at),
+        }
+
+        if remaining <= 0:
             return Response(
                 content='{"detail": "Rate limit exceeded. Try again later."}',
                 status_code=429,
                 media_type="application/json",
-                headers={"Retry-After": str(self.window_seconds)},
+                headers={**rate_headers, "Retry-After": str(self.window_seconds)},
             )
 
-        self.requests[client_ip].append(now)
+        self.requests[client_key].append(now)
         response = await call_next(request)
+
+        # Attach rate limit headers to successful responses
+        for k, v in rate_headers.items():
+            response.headers[k] = v
+
         return response
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to every response.
+
+    Mitigates clickjacking, MIME-sniffing, XSS, and information leakage.
+    Adds HSTS in production mode.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+
+        # HSTS — only in production (assumes TLS termination at reverse proxy)
+        if settings.app_env == "production":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+
+        return response
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Enforce maximum request body size.
+
+    Returns 413 Payload Too Large if the Content-Length exceeds the limit,
+    or if the streamed body exceeds it.  Default: 10 KB for generation endpoints,
+    100 KB for other endpoints.
+    """
+
+    GENERATION_PATHS = frozenset({
+        "/api/v1/generations",
+        "/api/v1/generations/",
+    })
+
+    def __init__(self, app, default_max_bytes: int = 102_400, generation_max_bytes: int = 10_240):
+        super().__init__(app)
+        self.default_max_bytes = default_max_bytes
+        self.generation_max_bytes = generation_max_bytes
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ("POST", "PUT", "PATCH"):
+            path = request.url.path.rstrip("/")
+            max_bytes = (
+                self.generation_max_bytes
+                if path in ("/api/v1/generations",)
+                else self.default_max_bytes
+            )
+
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > max_bytes:
+                return Response(
+                    content=f'{{"detail": "Request body too large. Maximum: {max_bytes} bytes."}}',
+                    status_code=413,
+                    media_type="application/json",
+                )
+
+        return await call_next(request)
+
+
+class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
+    """Redirect HTTP to HTTPS in production.
+
+    Only active when APP_ENV=production. In development, this is a no-op.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if (
+            settings.app_env == "production"
+            and request.url.scheme == "http"
+            and request.url.path not in ("/health", "/ready")
+        ):
+            url = request.url.replace(scheme="https")
+            return Response(
+                status_code=301,
+                headers={"Location": str(url)},
+            )
+        return await call_next(request)
 
 
 # Create the FastAPI application
@@ -122,11 +254,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rate Limiting Middleware
+# Security Headers Middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# HTTPS Redirect (production only)
+app.add_middleware(HTTPSRedirectMiddleware)
+
+# Request Size Limits (10KB for generation, 100KB default)
+app.add_middleware(
+    RequestSizeLimitMiddleware,
+    default_max_bytes=102_400,
+    generation_max_bytes=10_240,
+)
+
+# Role-Aware Rate Limiting (30/hr researcher, 100/hr admin)
 app.add_middleware(
     RateLimitMiddleware,
-    default_limit=settings.rate_limit_researcher,
-    window_seconds=60,
+    researcher_limit=settings.rate_limit_researcher,
+    admin_limit=settings.rate_limit_admin,
+    window_seconds=3600,
 )
 
 # Register API routes

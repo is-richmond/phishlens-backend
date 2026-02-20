@@ -8,9 +8,14 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.scenario import PretextCategory
+from app.core.validation import (
+    sanitize_text,
+    sanitize_optional,
+    detect_prompt_injection,
+)
 
 
 class TemplateBase(BaseModel):
@@ -28,6 +33,27 @@ class TemplateCreate(TemplateBase):
 
     is_public: bool = False
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def sanitize_name(cls, v: str) -> str:
+        return sanitize_text(v)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def sanitize_description(cls, v: Optional[str]) -> Optional[str]:
+        return sanitize_optional(v)
+
+    @field_validator("system_prompt", "user_prompt_skeleton", mode="before")
+    @classmethod
+    def check_prompt_injection(cls, v: str) -> str:
+        """Reject prompts that contain injection / jailbreak patterns."""
+        findings = detect_prompt_injection(v)
+        if findings:
+            raise ValueError(
+                f"Prompt contains disallowed injection patterns: {'; '.join(findings)}"
+            )
+        return v
+
 
 class TemplateUpdate(BaseModel):
     """Template update request."""
@@ -38,6 +64,29 @@ class TemplateUpdate(BaseModel):
     system_prompt: Optional[str] = None
     user_prompt_skeleton: Optional[str] = None
     is_public: Optional[bool] = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def sanitize_name(cls, v: Optional[str]) -> Optional[str]:
+        return sanitize_optional(v)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def sanitize_description(cls, v: Optional[str]) -> Optional[str]:
+        return sanitize_optional(v)
+
+    @field_validator("system_prompt", "user_prompt_skeleton", mode="before")
+    @classmethod
+    def check_prompt_injection(cls, v: Optional[str]) -> Optional[str]:
+        """Reject prompts that contain injection / jailbreak patterns."""
+        if v is None:
+            return None
+        findings = detect_prompt_injection(v)
+        if findings:
+            raise ValueError(
+                f"Prompt contains disallowed injection patterns: {'; '.join(findings)}"
+            )
+        return v
 
 
 class TemplateResponse(TemplateBase):

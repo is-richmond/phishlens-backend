@@ -6,7 +6,8 @@ Orchestrates the full generation pipeline:
   2. Generate message (LLMService)
   3. Parse and extract subject/body
   4. Evaluate realism (LLMService — secondary call)
-  5. Store results
+  5. PII scan & safety checks
+  6. Store results
 """
 
 import re
@@ -22,6 +23,7 @@ from app.models.generation import Generation
 from app.services.llm_service import llm_service
 from app.services.prompt_service import prompt_service
 from app.core.logging import get_logger
+from app.core.validation import detect_pii
 
 logger = get_logger("generation_service")
 
@@ -81,6 +83,21 @@ class GenerationService:
         # Step 4: Enforce placeholder data (safety check)
         body = self._enforce_placeholders(body)
 
+        # Step 4b: PII scan — log any real PII detected in output
+        pii_findings = detect_pii(body)
+        if subject:
+            subject_pii = detect_pii(subject)
+            for k, v in subject_pii.items():
+                pii_findings.setdefault(k, []).extend(v)
+
+        if pii_findings:
+            logger.warning(
+                "PII detected in generated output",
+                scenario_id=str(scenario.id),
+                pii_types=list(pii_findings.keys()),
+                count={k: len(v) for k, v in pii_findings.items()},
+            )
+
         # Step 5: Evaluate realism (secondary LLM call)
         scenario_context = prompt_service.build_scenario_context_summary(scenario)
         try:
@@ -112,6 +129,7 @@ class GenerationService:
                 "model_variant": model_variant,
                 "system_prompt_preview": system_prompt[:200] + "...",
                 "user_prompt_preview": user_prompt[:200] + "...",
+                "pii_detected": {k: len(v) for k, v in pii_findings.items()} if pii_findings else None,
             },
             generated_subject=subject,
             generated_text=body,

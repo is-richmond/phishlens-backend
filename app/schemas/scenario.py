@@ -9,7 +9,9 @@ from typing import Optional
 from uuid import UUID
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.validation import sanitize_text, sanitize_optional
 
 
 class PretextCategory(str, Enum):
@@ -51,7 +53,15 @@ class ScenarioBase(BaseModel):
 class ScenarioCreate(ScenarioBase):
     """Scenario creation request."""
 
-    pass
+    @field_validator("title", "target_role", mode="before")
+    @classmethod
+    def sanitize_required_fields(cls, v: str) -> str:
+        return sanitize_text(v)
+
+    @field_validator("description", "organization_context", "pretext_description", "target_department", mode="before")
+    @classmethod
+    def sanitize_optional_fields(cls, v: Optional[str]) -> Optional[str]:
+        return sanitize_optional(v)
 
 
 class ScenarioUpdate(BaseModel):
@@ -67,6 +77,16 @@ class ScenarioUpdate(BaseModel):
     urgency_level: Optional[int] = Field(None, ge=1, le=5)
     communication_channel: Optional[CommunicationChannel] = None
     language: Optional[Language] = None
+
+    @field_validator("title", "target_role", mode="before")
+    @classmethod
+    def sanitize_required_fields(cls, v: Optional[str]) -> Optional[str]:
+        return sanitize_optional(v)
+
+    @field_validator("description", "organization_context", "pretext_description", "target_department", mode="before")
+    @classmethod
+    def sanitize_optional_fields(cls, v: Optional[str]) -> Optional[str]:
+        return sanitize_optional(v)
 
 
 class ScenarioResponse(ScenarioBase):

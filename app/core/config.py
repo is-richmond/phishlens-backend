@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     rate_limit_researcher: int = Field(default=30, alias="RATE_LIMIT_RESEARCHER")
     rate_limit_admin: int = Field(default=100, alias="RATE_LIMIT_ADMIN")
 
+    # Encryption (AES-256 for API keys at rest)
+    api_key_encryption_key: Optional[str] = Field(
+        default=None, alias="API_KEY_ENCRYPTION_KEY"
+    )
+
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
