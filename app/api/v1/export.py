@@ -6,15 +6,18 @@ with rich metadata including scenario details and campaign context.
 """
 
 import csv
+import enum
 import io
 import json
 from datetime import datetime, timezone
+from decimal import Decimal
 from email.mime.text import MIMEText
 from uuid import UUID
-from typing import Optional
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, get_current_user, get_client_ip
@@ -26,12 +29,16 @@ from app.services.audit import log_action
 router = APIRouter()
 
 
+class ExportRequest(BaseModel):
+    generation_ids: list[UUID]
+    format: Literal["json", "csv", "eml"] = "json"
+    include_metadata: bool = True
+
+
 @router.post("")
 def export_generations(
-    generation_ids: list[UUID],
+    body: ExportRequest,
     request: Request,
-    format: str = Query("json", regex="^(json|csv|eml)$"),
-    include_metadata: bool = Query(True, description="Include scenario/template metadata in export"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -40,6 +47,9 @@ def export_generations(
     Supported formats: json, csv, eml.
     Optionally includes scenario and template metadata.
     """
+    generation_ids = body.generation_ids
+    format = body.format
+    include_metadata = body.include_metadata
     # Fetch generations with ownership check
     generations = (
         db.query(Generation)
@@ -84,6 +94,19 @@ def export_generations(
         return _export_csv(generations, scenario_map, include_metadata)
     elif format == "eml":
         return _export_eml(generations, scenario_map)
+
+
+def _json_default(obj: object) -> object:
+    """Custom JSON serializer for types not handled by stdlib."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, UUID):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, enum.Enum):
+        return obj.value
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 def _export_json(
@@ -133,7 +156,7 @@ def _export_json(
 
         export_data["generations"].append(item)
 
-    content = json.dumps(export_data, indent=2, ensure_ascii=False)
+    content = json.dumps(export_data, indent=2, ensure_ascii=False, default=_json_default)
     return StreamingResponse(
         io.BytesIO(content.encode("utf-8")),
         media_type="application/json",
