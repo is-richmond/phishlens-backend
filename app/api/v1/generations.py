@@ -21,7 +21,7 @@ from app.schemas.generation import (
 )
 from app.services.audit import log_action
 from app.services.generation_service import generation_service
-from app.services.llm_service import llm_service
+from app.services.llm_service import llm_service, SUPPORTED_MODELS
 from app.services.prompt_service import prompt_service
 from app.services.abuse_detection import check_user_abuse
 from app.core.logging import get_logger
@@ -89,10 +89,10 @@ def create_generation(
             )
 
     # Validate model variant
-    if data.model_variant not in llm_service.SUPPORTED_MODELS:
+    if data.model_variant not in SUPPORTED_MODELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported model variant. Supported: {list(llm_service.SUPPORTED_MODELS.keys())}",
+            detail=f"Unsupported model variant. Supported: {list(SUPPORTED_MODELS.keys())}",
         )
 
     # Run the generation pipeline
@@ -106,10 +106,23 @@ def create_generation(
             model_variant=data.model_variant,
         )
     except Exception as e:
-        logger.error("Generation pipeline failed", error=str(e), scenario_id=str(data.scenario_id))
+        error_msg = str(e)
+        logger.error("Generation pipeline failed", error=error_msg, scenario_id=str(data.scenario_id))
+
+        # Surface a clean message for quota / rate-limit errors
+        if "429" in error_msg or "quota" in error_msg.lower() or "rate" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    "Gemini API quota exceeded. Your free-tier daily limit has been reached. "
+                    "Please wait for the quota to reset or upgrade to a paid plan at "
+                    "https://aistudio.google.com/"
+                ),
+            )
+
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM generation failed: {str(e)}",
+            detail=f"LLM generation failed: {error_msg}",
         )
 
     # Audit log with IP/UA tracking
@@ -204,7 +217,7 @@ def list_supported_models(
 ):
     """List supported LLM model variants."""
     models = []
-    for key, value in llm_service.SUPPORTED_MODELS.items():
+    for key, value in SUPPORTED_MODELS.items():
         models.append({
             "id": key,
             "name": value,

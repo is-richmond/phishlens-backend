@@ -23,7 +23,11 @@ from app.schemas.scenario import (
     CommunicationChannel,
 )
 from app.services.audit import log_action
-from app.services.prompt_service import prompt_service
+from app.services.prompt_service import (
+    prompt_service,
+    TARGET_PERSONAS,
+    PRETEXT_DESCRIPTIONS,
+)
 
 router = APIRouter()
 
@@ -67,7 +71,7 @@ def list_persona_presets(
     when creating scenarios, along with suggested department and context.
     """
     presets = []
-    for role, desc in prompt_service.TARGET_PERSONAS.items():
+    for role, desc in TARGET_PERSONAS.items():
         presets.append({
             "target_role": role,
             "description": desc,
@@ -86,7 +90,7 @@ def list_pretext_categories(
     including common tactics used.
     """
     categories = []
-    for cat, desc in prompt_service.PRETEXT_DESCRIPTIONS.items():
+    for cat, desc in PRETEXT_DESCRIPTIONS.items():
         categories.append({
             "category": cat,
             "description": desc,
