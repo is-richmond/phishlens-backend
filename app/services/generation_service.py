@@ -40,7 +40,7 @@ class GenerationService:
         template: Optional[Template],
         temperature: float = 0.7,
         max_tokens: int = 1024,
-        model_variant: str = "gemini-2.0-flash",
+        model_variant: str = "gemini-2.5-flash-lite",
     ) -> Generation:
         """Run the full generation + evaluation pipeline.
 

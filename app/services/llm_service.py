@@ -27,9 +27,9 @@ SAFETY_SETTINGS = {
 
 # Supported model variants
 SUPPORTED_MODELS = {
-    "gemini-2.0-flash": "gemini-2.0-flash",
-    "gemini-2.5-pro": "gemini-2.5-pro-preview-05-06",
-    "gemini-2.5-flash": "gemini-2.5-flash-preview-04-17",
+    "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+    "gemini-2.5-flash": "gemini-2.5-flash",
+    "gemini-2.5-pro": "gemini-2.5-pro",
 }
 
 
@@ -54,7 +54,7 @@ class LLMService:
         self,
         system_prompt: str,
         user_prompt: str,
-        model_variant: str = "gemini-2.0-flash",
+        model_variant: str = "gemini-2.5-flash-lite",
         temperature: float = 0.7,
         max_tokens: int = 1024,
     ) -> dict:
@@ -131,7 +131,7 @@ class LLMService:
         self,
         generated_message: str,
         scenario_context: str,
-        model_variant: str = "gemini-2.0-flash",
+        model_variant: str = "gemini-2.5-flash-lite",
     ) -> dict:
         """Evaluate a generated phishing message for realism (secondary LLM call).
 

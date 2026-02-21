@@ -18,7 +18,7 @@ class GenerationCreate(BaseModel):
     template_id: Optional[UUID] = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=1024, ge=100, le=8192)
-    model_variant: str = Field(default="gemini-2.0-flash")
+    model_variant: str = Field(default="gemini-2.5-flash-lite")
 
 
 class DimensionalScores(BaseModel):

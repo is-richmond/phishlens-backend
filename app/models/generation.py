@@ -43,7 +43,7 @@ class Generation(Base):
     # Generation Output
     generated_subject = Column(String(500), nullable=True)  # Email subject line
     generated_text = Column(Text, nullable=False)  # The generated phishing message
-    model_used = Column(String(100), nullable=False)  # e.g., "gemini-2.0-flash"
+    model_used = Column(String(100), nullable=False)  # e.g., "gemini-2.5-flash-lite"
 
     # Realism Scoring
     overall_score = Column(Numeric(3, 1), nullable=True)  # 1.0 - 10.0
