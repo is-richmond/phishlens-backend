@@ -19,6 +19,7 @@ load_dotenv()
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import settings
 from app.core.logging import setup_logging, get_logger
@@ -40,20 +41,21 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables ensured (dev mode)")
 
-    # Seed predefined templates
-    try:
-        from app.database import SessionLocal
-        from app.services.seed_templates import seed_templates
+    # Seed predefined templates (skip in testing — tests manage their own DB)
+    if settings.app_env != "testing":
+        try:
+            from app.database import SessionLocal
+            from app.services.seed_templates import seed_templates
 
-        db = SessionLocal()
-        count = seed_templates(db)
-        db.close()
-        if count > 0:
-            logger.info(f"Seeded {count} predefined templates")
-        else:
-            logger.info("All predefined templates already exist")
-    except Exception as e:
-        logger.warning(f"Template seeding skipped: {e}")
+            db = SessionLocal()
+            count = seed_templates(db)
+            db.close()
+            if count > 0:
+                logger.info(f"Seeded {count} predefined templates")
+            else:
+                logger.info("All predefined templates already exist")
+        except Exception as e:
+            logger.warning(f"Template seeding skipped: {e}")
 
     yield
 
@@ -159,92 +161,126 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+class SecurityHeadersMiddleware:
     """Add security headers to every response.
 
     Mitigates clickjacking, MIME-sniffing, XSS, and information leakage.
     Adds HSTS in production mode.
+    Pure ASGI implementation to avoid BaseHTTPMiddleware thread-deadlocks.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
-        # HSTS — only in production (assumes TLS termination at reverse proxy)
-        if settings.app_env == "production":
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains"
-            )
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        return response
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.extend([
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-frame-options", b"DENY"),
+                    (b"x-xss-protection", b"1; mode=block"),
+                    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                    (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
+                ])
+                if settings.app_env == "production":
+                    headers.append(
+                        (b"strict-transport-security", b"max-age=31536000; includeSubDomains")
+                    )
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
-class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+class RequestSizeLimitMiddleware:
     """Enforce maximum request body size.
 
-    Returns 413 Payload Too Large if the Content-Length exceeds the limit,
-    or if the streamed body exceeds it.  Default: 10 KB for generation endpoints,
-    100 KB for other endpoints.
+    Returns 413 Payload Too Large if the Content-Length exceeds the limit.
+    Default: 10 KB for generation endpoints, 100 KB for other endpoints.
+    Pure ASGI implementation to avoid BaseHTTPMiddleware thread-deadlocks.
     """
 
-    GENERATION_PATHS = frozenset({
-        "/api/v1/generations",
-        "/api/v1/generations/",
-    })
+    GENERATION_PATHS = frozenset({"/api/v1/generations"})
 
-    def __init__(self, app, default_max_bytes: int = 102_400, generation_max_bytes: int = 10_240):
-        super().__init__(app)
+    def __init__(self, app: ASGIApp, default_max_bytes: int = 102_400, generation_max_bytes: int = 10_240):
+        self.app = app
         self.default_max_bytes = default_max_bytes
         self.generation_max_bytes = generation_max_bytes
 
-    async def dispatch(self, request: Request, call_next):
-        if request.method in ("POST", "PUT", "PATCH"):
-            path = request.url.path.rstrip("/")
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "GET")
+        if method in ("POST", "PUT", "PATCH"):
+            path = scope.get("path", "").rstrip("/")
             max_bytes = (
                 self.generation_max_bytes
-                if path in ("/api/v1/generations",)
+                if path in self.GENERATION_PATHS
                 else self.default_max_bytes
             )
 
-            content_length = request.headers.get("content-length")
+            headers_dict = dict(scope.get("headers", []))
+            content_length = headers_dict.get(b"content-length")
             if content_length and int(content_length) > max_bytes:
                 _restriction_logger.warning(
                     "Request body too large",
-                    path=request.url.path,
+                    path=path,
                     content_length=int(content_length),
                     max_bytes=max_bytes,
                 )
-                return Response(
+                response = Response(
                     content=f'{{"detail": "Request body too large. Maximum: {max_bytes} bytes."}}',
                     status_code=413,
                     media_type="application/json",
                 )
+                await response(scope, receive, send)
+                return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)
 
 
-class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
+class HTTPSRedirectMiddleware:
     """Redirect HTTP to HTTPS in production.
 
-    Only active when APP_ENV=production. In development, this is a no-op.
+    Only active when APP_ENV=production. In development/testing, this is a no-op.
+    Pure ASGI implementation to avoid BaseHTTPMiddleware thread-deadlocks.
     """
 
-    async def dispatch(self, request: Request, call_next):
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         if (
             settings.app_env == "production"
-            and request.url.scheme == "http"
-            and request.url.path not in ("/health", "/ready")
+            and scope.get("scheme") == "http"
+            and scope["path"] not in ("/health", "/ready")
         ):
-            url = request.url.replace(scheme="https")
-            return Response(
+            headers_dict = dict(scope.get("headers", []))
+            host = headers_dict.get(b"host", b"localhost").decode()
+            path = scope.get("path", "/")
+            qs = scope.get("query_string", b"")
+            url = f"https://{host}{path}"
+            if qs:
+                url += f"?{qs.decode()}"
+            response = Response(
                 status_code=301,
-                headers={"Location": str(url)},
+                headers={"Location": url},
             )
-        return await call_next(request)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
 
 
 # Create the FastAPI application
@@ -311,7 +347,8 @@ async def content_restriction_validation_handler(
     Any validation error whose message contains 'injection' is logged as a
     content restriction event.  All validation errors are returned as 422.
     """
-    for error in exc.errors():
+    errors = exc.errors()
+    for error in errors:
         msg = str(error.get("msg", ""))
         if "injection" in msg.lower():
             _restriction_logger.warning(
@@ -321,9 +358,18 @@ async def content_restriction_validation_handler(
                 detail=msg[:200],
             )
 
+    # Ensure ctx values are JSON-serializable (Pydantic v2 may embed
+    # ValueError objects which are not serializable by default).
+    safe_errors = []
+    for error in errors:
+        safe = {k: v for k, v in error.items() if k != "ctx"}
+        if "ctx" in error and error["ctx"]:
+            safe["ctx"] = {k: str(v) for k, v in error["ctx"].items()}
+        safe_errors.append(safe)
+
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors()},
+        content={"detail": safe_errors},
     )
 
 
