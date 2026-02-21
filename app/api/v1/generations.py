@@ -31,7 +31,7 @@ logger = get_logger("generations_router")
 router = APIRouter()
 
 
-@router.post("/", response_model=GenerationResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=GenerationResponse, status_code=status.HTTP_201_CREATED)
 def create_generation(
     data: GenerationCreate,
     request: Request,
@@ -213,7 +213,7 @@ def list_supported_models(
     return models
 
 
-@router.get("/", response_model=GenerationListResponse)
+@router.get("", response_model=GenerationListResponse)
 def list_generations(
     scenario_id: UUID | None = None,
     min_score: float | None = Query(None, ge=0, le=10),

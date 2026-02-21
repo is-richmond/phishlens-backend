@@ -28,7 +28,7 @@ from app.services.prompt_service import prompt_service
 router = APIRouter()
 
 
-@router.post("/", response_model=ScenarioResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ScenarioResponse, status_code=status.HTTP_201_CREATED)
 def create_scenario(
     data: ScenarioCreate,
     request: Request,
@@ -95,7 +95,7 @@ def list_pretext_categories(
     return categories
 
 
-@router.get("/", response_model=ScenarioListResponse)
+@router.get("", response_model=ScenarioListResponse)
 def list_scenarios(
     category: PretextCategory | None = None,
     channel: CommunicationChannel | None = None,

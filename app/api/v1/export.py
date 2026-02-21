@@ -26,7 +26,7 @@ from app.services.audit import log_action
 router = APIRouter()
 
 
-@router.post("/")
+@router.post("")
 def export_generations(
     generation_ids: list[UUID],
     request: Request,

@@ -29,7 +29,7 @@ logger = get_logger("templates_router")
 router = APIRouter()
 
 
-@router.get("/", response_model=TemplateListResponse)
+@router.get("", response_model=TemplateListResponse)
 def list_templates(
     category: PretextCategory | None = None,
     search: str | None = None,
@@ -86,7 +86,7 @@ def get_template(
     return template
 
 
-@router.post("/", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
 def create_template(
     data: TemplateCreate,
     request: Request,

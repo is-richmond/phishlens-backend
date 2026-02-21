@@ -30,7 +30,7 @@ from app.services.audit import log_action
 router = APIRouter()
 
 
-@router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
 def create_campaign(
     data: CampaignCreate,
     request: Request,
@@ -55,7 +55,7 @@ def create_campaign(
     return campaign
 
 
-@router.get("/", response_model=CampaignListResponse)
+@router.get("", response_model=CampaignListResponse)
 def list_campaigns(
     search: str | None = None,
     page: int = Query(1, ge=1),
