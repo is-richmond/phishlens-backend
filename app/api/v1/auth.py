@@ -14,7 +14,7 @@ from app.core.security import hash_password, verify_password, create_access_toke
 from app.core.validation import validate_password_strength
 from app.models.user import User
 from app.schemas.auth import UserRegister, UserLogin, TokenResponse, ChangePasswordRequest
-from app.schemas.user import UserResponse
+from app.schemas.user import UserResponse, UserProfileUpdate
 from app.services.audit import log_action
 from app.core.logging import get_logger
 
@@ -273,6 +273,41 @@ def change_password(
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)):
     """Get the current authenticated user's profile."""
+    return current_user
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(
+    data: UserProfileUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the current user's profile (name, institution)."""
+    update_data = data.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields to update",
+        )
+
+    for field, value in update_data.items():
+        setattr(current_user, field, value)
+
+    db.commit()
+    db.refresh(current_user)
+
+    log_action(
+        db,
+        current_user.id,
+        "user.profile_update",
+        "user",
+        current_user.id,
+        details={"updated_fields": list(update_data.keys())},
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+
     return current_user
 
 
