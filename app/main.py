@@ -283,12 +283,12 @@ app.add_middleware(
 )
 
 # Role-Aware Rate Limiting (30/hr researcher, 100/hr admin)
-app.add_middleware(
-    RateLimitMiddleware,
-    researcher_limit=settings.rate_limit_researcher,
-    admin_limit=settings.rate_limit_admin,
-    window_seconds=3600,
-)
+# app.add_middleware(
+#     RateLimitMiddleware,
+#     researcher_limit=settings.rate_limit_researcher,
+#     admin_limit=settings.rate_limit_admin,
+#     window_seconds=3600,
+# )
 
 # Register API routes
 app.include_router(api_router)
