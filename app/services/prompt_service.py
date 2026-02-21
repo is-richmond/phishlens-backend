@@ -313,7 +313,35 @@ class PromptService:
                 objective, org_context, scenario
             )
 
+        # --- Language override (applied to ALL paths) ---
+        lang_override = self._get_language_override(scenario)
+        if lang_override:
+            system_prompt += f"\n\n{lang_override}"
+            user_prompt += f"\n\n{lang_override}"
+
         return system_prompt, user_prompt
+
+    @staticmethod
+    def _get_language_override(scenario: Scenario) -> str:
+        """Return a strong language instruction if the scenario uses a non-English language."""
+        lang = scenario.language
+        if lang == "russian":
+            return (
+                "CRITICAL REQUIREMENT — LANGUAGE: You MUST write the ENTIRE message "
+                "in Russian (Русский язык). Every single word of the output — subject "
+                "line, greeting, body, call-to-action, signature — MUST be in Russian. "
+                "The ONLY exceptions are placeholder tokens like [TARGET_NAME] and the "
+                "watermark tag. Do NOT write in English."
+            )
+        if lang == "kazakh":
+            return (
+                "CRITICAL REQUIREMENT — LANGUAGE: You MUST write the ENTIRE message "
+                "in Kazakh (Қазақ тілі). Every single word of the output — subject "
+                "line, greeting, body, call-to-action, signature — MUST be in Kazakh. "
+                "The ONLY exceptions are placeholder tokens like [TARGET_NAME] and the "
+                "watermark tag. Do NOT write in English."
+            )
+        return ""
 
     def _build_default_system_prompt(self, objective: dict, scenario: Scenario) -> str:
         """Build a system prompt when no template is selected."""
