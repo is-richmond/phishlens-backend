@@ -307,7 +307,7 @@ app = FastAPI(
 # Middleware stack (added in reverse order - last added executes first)
 # 1. CORS must be first to handle preflight OPTIONS requests
 frontend_origins = [
-    url.strip() for url in settings.frontend_url.split(",") if url.strip()
+    url.strip().rstrip("/") for url in settings.frontend_url.split(",") if url.strip()
 ]
 
 # In production, also add common variations
