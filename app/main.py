@@ -302,7 +302,7 @@ app = FastAPI(
 frontend_origins = [
     url.strip() for url in settings.frontend_url.split(",") if url.strip()
 ]
-logger.info(f"CORS configured for origins: {frontend_origins}")
+print(f"CORS configured for origins: {frontend_origins}")
 
 # Request Size Limits (10KB for generation, 100KB default)
 app.add_middleware(
