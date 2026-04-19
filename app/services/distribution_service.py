@@ -66,8 +66,11 @@ class DistributionService:
                 msg.attach(MIMEText(body, "plain"))
             
             # Send via SMTP
+            # For smtp2go port 2525: plain SMTP (no TLS)
+            # For smtp2go port 587: SMTP with STARTTLS
             with smtplib.SMTP(settings.smtp_server, settings.smtp_port) as server:
-                server.starttls()
+                if settings.smtp_port == 587:
+                    server.starttls()
                 server.login(settings.smtp_user, settings.smtp_password)
                 server.send_message(msg)
             
