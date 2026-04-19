@@ -297,29 +297,32 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
-# CORS Middleware - supports both single URL and comma-separated list
+# Middleware stack (added in reverse order - last added executes first)
+# 1. CORS must be first to handle preflight OPTIONS requests
 frontend_origins = [
     url.strip() for url in settings.frontend_url.split(",") if url.strip()
 ]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=frontend_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Security Headers Middleware
-app.add_middleware(SecurityHeadersMiddleware)
-
-# HTTPS Redirect (production only)
-app.add_middleware(HTTPSRedirectMiddleware)
 
 # Request Size Limits (10KB for generation, 100KB default)
 app.add_middleware(
     RequestSizeLimitMiddleware,
     default_max_bytes=102_400,
     generation_max_bytes=10_240,
+)
+
+# HTTPS Redirect (production only)
+app.add_middleware(HTTPSRedirectMiddleware)
+
+# Security Headers Middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS Middleware - MUST be last added (so it executes first)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=frontend_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Role-Aware Rate Limiting (30/hr researcher, 100/hr admin)
