@@ -38,6 +38,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown events."""
     logger = get_logger()
     logger.info("Starting PhishLens API", version=settings.app_version, env=settings.app_env)
+    logger.info(f"CORS FRONTEND_URL from settings: {settings.frontend_url}")
+    logger.info(f"CORS allowed origins: {[url.strip() for url in settings.frontend_url.split(',') if url.strip()]}")
 
     # Create tables if in dev mode (production uses Alembic migrations)
     if settings.app_env == "development":
@@ -264,9 +266,11 @@ class HTTPSRedirectMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Skip redirect for OPTIONS (CORS preflight) and health checks
         if (
             settings.app_env == "production"
             and scope.get("scheme") == "http"
+            and scope.get("method") != "OPTIONS"
             and scope["path"] not in ("/health", "/ready")
         ):
             headers_dict = dict(scope.get("headers", []))
