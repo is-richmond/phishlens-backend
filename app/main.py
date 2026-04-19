@@ -29,6 +29,9 @@ from app.database import engine, Base
 # Logger for content restriction events
 _restriction_logger = get_logger("content_restrictions")
 
+# Debug: Print CORS configuration
+print(f"[STARTUP] FRONTEND_URL from settings: {settings.frontend_url}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
