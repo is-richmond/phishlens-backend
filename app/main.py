@@ -309,6 +309,15 @@ app = FastAPI(
 frontend_origins = [
     url.strip() for url in settings.frontend_url.split(",") if url.strip()
 ]
+
+# In production, also add common variations
+if settings.app_env == "production":
+    production_origins = [
+        "https://phishlens.qzz.io",
+        "https://phishlens-backend.onrender.com",  # Allow from backend too for testing
+    ]
+    frontend_origins.extend([o for o in production_origins if o not in frontend_origins])
+
 print(f"CORS configured for origins: {frontend_origins}")
 
 # Request Size Limits (10KB for generation, 100KB default)
