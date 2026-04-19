@@ -14,6 +14,7 @@ from app.api.v1 import (
     campaigns,
     admin,
     export,
+    bulk_generations,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -26,4 +27,5 @@ api_router.include_router(
 )
 api_router.include_router(campaigns.router, prefix="/campaigns", tags=["Campaigns"])
 api_router.include_router(export.router, prefix="/export", tags=["Export"])
+api_router.include_router(bulk_generations.router)
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])

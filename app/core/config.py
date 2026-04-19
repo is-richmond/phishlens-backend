@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # Google Gemini
     gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
 
-    # CORS
+    # CORS (supports comma-separated list for multiple origins)
     frontend_url: str = Field(default="http://localhost:3000", alias="FRONTEND_URL")
 
     # Rate Limiting
@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     api_key_encryption_key: Optional[str] = Field(
         default=None, alias="API_KEY_ENCRYPTION_KEY"
     )
+
+    # Email Configuration (for distribution)
+    smtp_server: str = Field(default="smtp.gmail.com", alias="SMTP_SERVER")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_user: Optional[str] = Field(default=None, alias="SMTP_USER")
+    smtp_password: Optional[str] = Field(default=None, alias="SMTP_PASSWORD")
+    email_from: Optional[str] = Field(default=None, alias="EMAIL_FROM")
+    
+    # Alternative: Use SendGrid
+    sendgrid_api_key: Optional[str] = Field(default=None, alias="SENDGRID_API_KEY")
+    sendgrid_from: Optional[str] = Field(default=None, alias="SENDGRID_FROM")
 
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

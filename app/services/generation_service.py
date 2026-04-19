@@ -41,6 +41,8 @@ class GenerationService:
         temperature: float = 0.7,
         max_tokens: int = 1024,
         model_variant: str = "gemini-2.5-flash-lite",
+        field_replacements: Optional[dict] = None,
+        bulk_generation_id: Optional[UUID] = None,
     ) -> Generation:
         """Run the full generation + evaluation pipeline.
 
@@ -51,6 +53,9 @@ class GenerationService:
             temperature: LLM creativity parameter.
             max_tokens: Maximum output length.
             model_variant: Gemini model variant.
+            field_replacements: Optional dict of placeholder -> value replacements
+                Example: {"[TARGET_NAME]": "Иван Петров", "[TARGET_EMAIL]": "ivan@company.com"}
+            bulk_generation_id: Optional reference to bulk generation campaign.
 
         Returns:
             The created Generation record with scores.
@@ -75,6 +80,14 @@ class GenerationService:
         subject, body = self._extract_subject_body(
             generated_text, scenario.communication_channel
         )
+
+        # Step 3b: Apply field replacements if provided
+        if field_replacements:
+            logger.debug(f"Applying field replacements: {field_replacements}")
+            for placeholder, value in field_replacements.items():
+                if subject:
+                    subject = subject.replace(placeholder, value)
+                body = body.replace(placeholder, value)
 
         # Ensure watermark is present
         if WATERMARK not in body:
@@ -123,6 +136,7 @@ class GenerationService:
         generation = Generation(
             scenario_id=scenario.id,
             template_id=template.id if template else None,
+            bulk_generation_id=bulk_generation_id,
             input_parameters={
                 "temperature": temperature,
                 "max_tokens": max_tokens,

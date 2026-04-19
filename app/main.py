@@ -297,10 +297,13 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
-# CORS Middleware
+# CORS Middleware - supports both single URL and comma-separated list
+frontend_origins = [
+    url.strip() for url in settings.frontend_url.split(",") if url.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url],
+    allow_origins=frontend_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

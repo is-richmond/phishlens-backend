@@ -35,6 +35,11 @@ class Generation(Base):
         ForeignKey("templates.id", ondelete="SET NULL"),
         nullable=True,
     )
+    bulk_generation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bulk_generations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Generation Input
     input_parameters = Column(JSONB, nullable=False, default=dict)

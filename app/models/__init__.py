@@ -10,6 +10,8 @@ from app.models.template import Template
 from app.models.generation import Generation
 from app.models.campaign import Campaign, campaign_generations
 from app.models.audit_log import AuditLog
+from app.models.bulk_generation import BulkGeneration, BulkGenerationResult
+from app.models.distribution import Distribution, DistributionStatus
 
 __all__ = [
     "User",
@@ -19,4 +21,8 @@ __all__ = [
     "Campaign",
     "campaign_generations",
     "AuditLog",
+    "BulkGeneration",
+    "BulkGenerationResult",
+    "Distribution",
+    "DistributionStatus",
 ]
