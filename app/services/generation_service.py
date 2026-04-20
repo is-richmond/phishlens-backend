@@ -22,6 +22,7 @@ from app.models.template import Template
 from app.models.generation import Generation
 from app.services.llm_service import llm_service
 from app.services.prompt_service import prompt_service
+from app.services.placeholder_service import placeholder_service
 from app.core.logging import get_logger
 from app.core.validation import detect_pii
 
@@ -96,6 +97,12 @@ class GenerationService:
         # Step 4: Enforce placeholder data (safety check)
         body = self._enforce_placeholders(body)
 
+        # Step 4c: Replace generic placeholders with realistic values
+        # This handles [TRACKING_NUMBER], [DATE], [DELIVERY_SERVICE], etc.
+        subject = placeholder_service.replace_generic_placeholders(subject) if subject else subject
+        body = placeholder_service.replace_generic_placeholders(body)
+        logger.debug(f"Replaced generic placeholders in message")
+
         # Step 4b: PII scan — log any real PII detected in output
         pii_findings = detect_pii(body)
         if subject:
@@ -162,6 +169,8 @@ class GenerationService:
         logger.info(
             "Generation complete",
             generation_id=str(generation.id),
+            subject=subject[:50] if subject else "NULL",
+            body_length=len(body) if body else 0,
             score=eval_result.get("overall_score"),
             time_ms=total_time_ms,
         )

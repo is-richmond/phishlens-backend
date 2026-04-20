@@ -25,6 +25,8 @@ PLACEHOLDER_PATTERNS = {
     r"(?i)(компания|company|организация|org|организацию)": "[COMPANY_NAME]",
     r"(?i)(отдел|department|dept)": "[TARGET_DEPARTMENT]",
     r"(?i)(телефон|phone|tel)": "[PHONE_NUMBER]",
+    r"(?i)(служба доставки|delivery.?service|сервис)": "[DELIVERY_SERVICE]",
+    r"(?i)(номер отслеживания|tracking.?number|трек)": "[TRACKING_NUMBER]",
 }
 
 

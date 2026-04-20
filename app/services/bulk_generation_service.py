@@ -179,20 +179,30 @@ class BulkGenerationService:
             # Parse Excel data
             headers, rows, _ = excel_service.parse_excel_file(bulk_gen.file_data)
 
-            # Get all pending results
-            results = (
-                async_db.query(BulkGenerationResult)
+            # Get all pending results (fresh from async_db session)
+            result_ids = (
+                async_db.query(BulkGenerationResult.id)
                 .filter(BulkGenerationResult.bulk_generation_id == bulk_gen_id)
                 .filter(BulkGenerationResult.status == "pending")
                 .all()
             )
-
-            logger.info(f"Processing {len(results)} rows for {bulk_gen_id}")
+            result_ids = [r[0] for r in result_ids]
+            
+            logger.info(f"Processing {len(result_ids)} rows for {bulk_gen_id}")
 
             generated_count = 0
             failed_count = 0
 
-            for idx, result in enumerate(results):
+            for idx, result_id in enumerate(result_ids):
+                # Fetch result fresh from this session to avoid detached instances
+                result = async_db.query(BulkGenerationResult).filter(
+                    BulkGenerationResult.id == result_id
+                ).first()
+                
+                if not result:
+                    logger.warning(f"Result {result_id} not found, skipping")
+                    continue
+                
                 try:
                     # Apply field replacements
                     replacements = excel_service.apply_field_replacements(
@@ -213,7 +223,7 @@ class BulkGenerationService:
                         bulk_generation_id=bulk_gen_id,
                     )
 
-                    # Update result
+                    # Update result with generated content
                     result.generation_id = generation.id
                     result.generated_subject = generation.generated_subject
                     result.generated_message = generation.generated_text
@@ -222,7 +232,7 @@ class BulkGenerationService:
                     result.error_message = None
 
                     generated_count += 1
-                    logger.info(f"[{idx + 1}/{len(results)}] Generated row {result.row_index}")
+                    logger.info(f"[{idx + 1}/{len(result_ids)}] Generated row {result.row_index} | subject='{generation.generated_subject[:50] if generation.generated_subject else 'NULL'}...'")
 
                 except Exception as e:
                     logger.error(f"Error generating row {result.row_index}: {e}", exc_info=True)
