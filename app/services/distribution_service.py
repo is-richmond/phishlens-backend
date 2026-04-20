@@ -16,7 +16,8 @@ from sqlalchemy import and_
 
 from app.models.distribution import Distribution, DistributionStatus
 from app.models.bulk_generation import BulkGeneration, BulkGenerationResult
-from app.models.campaign import Campaign
+from app.models.campaign import Campaign, campaign_generations
+from app.models.generation import Generation
 from app.models.scenario import Scenario
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -331,6 +332,26 @@ class DistributionService:
                         subject = scenario.title or "Security Notification" if scenario else "Security Notification"
                         logger.info(f"Row {result.row_index}: Using fallback subject '{subject}'")
                     
+                    # Create Generation object for this message
+                    generation = Generation(
+                        scenario_id=bulk_gen.scenario_id,
+                        template_id=bulk_gen.template_id,
+                        bulk_generation_id=bulk_generation_id,
+                        input_parameters={},
+                        generated_subject=subject,
+                        generated_text=result.generated_message,
+                        model_used=bulk_gen.model_variant or "gemini-2.5-flash-lite",
+                        watermark="[SIMULATION - AUTHORIZED SECURITY RESEARCH ONLY]",
+                    )
+                    db.add(generation)
+                    db.flush()  # Get generation.id before using it
+                    
+                    # Add generation to campaign if campaign_id is provided
+                    if campaign_id:
+                        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+                        if campaign:
+                            campaign.generations.append(generation)
+                    
                     # Create distribution
                     distribution = Distribution(
                         bulk_generation_id=bulk_generation_id,
@@ -343,14 +364,14 @@ class DistributionService:
                     )
                     db.add(distribution)
                     distributions_created += 1
-                    logger.debug(f"Created distribution for {email}: subject='{subject[:50]}...'")
+                    logger.debug(f"Created generation and distribution for {email}: subject='{subject[:50]}...'")
                     
                 except Exception as e:
                     logger.error(f"Error creating distribution for row {result.row_index}: {e}")
                     continue
             
             db.commit()
-            logger.info(f"Created {distributions_created} distributions")
+            logger.info(f"Created {distributions_created} distributions and generations")
             return distributions_created, None
             
         except Exception as e:

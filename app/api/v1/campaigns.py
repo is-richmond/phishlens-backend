@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.core.deps import get_db, get_current_user, get_client_ip
+from app.core.logging import get_logger
 from app.models.user import User
 from app.models.campaign import Campaign, campaign_generations
 from app.models.generation import Generation
@@ -27,6 +28,7 @@ from app.schemas.campaign import (
 
 from app.services.audit import log_action
 
+logger = get_logger("campaigns_router")
 router = APIRouter()
 
 
@@ -101,6 +103,9 @@ def get_campaign(
     if not campaign:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
 
+    # Log campaign details
+    logger.debug(f"Campaign {campaign_id}: name={campaign.name}, generations={len(campaign.generations)}")
+    
     # Calculate aggregate stats
     scores = [g.overall_score for g in campaign.generations if g.overall_score is not None]
     avg_score = sum(scores) / len(scores) if scores else None
