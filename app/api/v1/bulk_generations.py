@@ -114,7 +114,36 @@ async def get_bulk_generation(
             detail="Bulk generation not found"
         )
 
-    return bulk_gen
+    # Parse Excel file to get column headers and preview rows
+    try:
+        headers, rows, _ = excel_service.parse_excel_file(bulk_gen.file_data, max_rows=3)
+        preview_rows = rows[:3]
+    except Exception as e:
+        logger.warning(f"Could not parse Excel file for preview: {e}")
+        headers = []
+        preview_rows = []
+
+    # Create response with additional fields
+    return BulkGenerationDetailResponse(
+        id=bulk_gen.id,
+        title=bulk_gen.title,
+        original_filename=bulk_gen.original_filename,
+        description=bulk_gen.description,
+        status=bulk_gen.status,
+        scenario_id=bulk_gen.scenario_id,
+        template_id=bulk_gen.template_id,
+        field_mapping=bulk_gen.field_mapping,
+        column_headers=headers,
+        preview_rows=preview_rows,
+        total_rows=bulk_gen.total_rows,
+        generated_count=bulk_gen.generated_count,
+        failed_count=bulk_gen.failed_count,
+        temperature=str(bulk_gen.temperature),
+        max_tokens=bulk_gen.max_tokens,
+        model_variant=bulk_gen.model_variant or "gemini-2.5-flash-lite",
+        created_at=bulk_gen.created_at,
+        updated_at=bulk_gen.updated_at,
+    )
 
 
 @router.patch("/{bulk_generation_id}/field-mapping")
@@ -218,6 +247,14 @@ async def get_progress(
         )
 
     progress = bulk_generation_service.get_bulk_generation_progress(db, bulk_generation_id)
+    
+    # Log progress updates (helps debugging)
+    if bulk_gen.status == "processing":
+        logger.info(
+            f"Progress check: {bulk_generation_id} | status={progress['status']} | "
+            f"{progress['generated_count']}/{progress['total_rows']} (~{progress['progress_percent']}%)"
+        )
+    
     return BulkGenerationProgressResponse(
         bulk_generation_id=bulk_generation_id,
         **progress

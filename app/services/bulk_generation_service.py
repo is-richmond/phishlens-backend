@@ -146,7 +146,7 @@ class BulkGenerationService:
         Generates messages for all rows and stores results.
 
         Args:
-            db: Database session
+            db: Database session (initial session, will create new one for async context)
             bulk_gen_id: BulkGeneration ID to process
             temperature: LLM temperature
             max_tokens: Max tokens for generation
@@ -155,95 +155,111 @@ class BulkGenerationService:
         Returns:
             Updated BulkGeneration record with completion status
         """
-        bulk_gen = db.query(BulkGeneration).filter(BulkGeneration.id == bulk_gen_id).first()
-        if not bulk_gen:
-            raise ValueError(f"BulkGeneration {bulk_gen_id} not found")
+        # Create a new database session for this async task
+        # (the passed db session may be tied to the request context)
+        from app.database import SessionLocal
+        
+        async_db = SessionLocal()
+        
+        try:
+            bulk_gen = async_db.query(BulkGeneration).filter(BulkGeneration.id == bulk_gen_id).first()
+            if not bulk_gen:
+                raise ValueError(f"BulkGeneration {bulk_gen_id} not found")
 
-        logger.info(f"Starting bulk generation for {bulk_gen_id}")
-        bulk_gen.status = "processing"
-        db.commit()
+            logger.info(f"Starting bulk generation for {bulk_gen_id}")
+            bulk_gen.status = "processing"
+            async_db.commit()
 
-        # Get scenario and template
-        scenario = db.query(Scenario).filter(Scenario.id == bulk_gen.scenario_id).first()
-        template = None
-        if bulk_gen.template_id:
-            template = db.query(Template).filter(Template.id == bulk_gen.template_id).first()
+            # Get scenario and template
+            scenario = async_db.query(Scenario).filter(Scenario.id == bulk_gen.scenario_id).first()
+            template = None
+            if bulk_gen.template_id:
+                template = async_db.query(Template).filter(Template.id == bulk_gen.template_id).first()
 
-        # Parse Excel data
-        headers, rows, _ = excel_service.parse_excel_file(bulk_gen.file_data)
+            # Parse Excel data
+            headers, rows, _ = excel_service.parse_excel_file(bulk_gen.file_data)
 
-        # Get all pending results
-        results = (
-            db.query(BulkGenerationResult)
-            .filter(BulkGenerationResult.bulk_generation_id == bulk_gen_id)
-            .filter(BulkGenerationResult.status == "pending")
-            .all()
-        )
+            # Get all pending results
+            results = (
+                async_db.query(BulkGenerationResult)
+                .filter(BulkGenerationResult.bulk_generation_id == bulk_gen_id)
+                .filter(BulkGenerationResult.status == "pending")
+                .all()
+            )
 
-        logger.info(f"Processing {len(results)} rows")
+            logger.info(f"Processing {len(results)} rows for {bulk_gen_id}")
 
-        generated_count = 0
-        failed_count = 0
+            generated_count = 0
+            failed_count = 0
 
-        for result in results:
-            try:
-                # Apply field replacements
-                replacements = excel_service.apply_field_replacements(
-                    result.input_data, headers, bulk_gen.field_mapping
-                )
+            for idx, result in enumerate(results):
+                try:
+                    # Apply field replacements
+                    replacements = excel_service.apply_field_replacements(
+                        result.input_data, headers, bulk_gen.field_mapping
+                    )
 
-                logger.debug(f"Row {result.row_index}: replacements = {replacements}")
+                    logger.debug(f"Row {result.row_index}: replacements = {replacements}")
 
-                # Generate message with replacements
-                # Create a modified scenario with replacements applied
-                generation = generation_service.generate(
-                    db=db,
-                    scenario=scenario,
-                    template=template,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    model_variant=model_variant,
-                    field_replacements=replacements,
-                    bulk_generation_id=bulk_gen_id,
-                )
+                    # Generate message with replacements
+                    generation = generation_service.generate(
+                        db=async_db,
+                        scenario=scenario,
+                        template=template,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        model_variant=model_variant,
+                        field_replacements=replacements,
+                        bulk_generation_id=bulk_gen_id,
+                    )
 
-                # Update result
-                result.generation_id = generation.id
-                result.generated_subject = generation.generated_subject
-                result.generated_message = generation.generated_text
-                result.field_replacements = replacements
-                result.status = "generated"
-                result.error_message = None
+                    # Update result
+                    result.generation_id = generation.id
+                    result.generated_subject = generation.generated_subject
+                    result.generated_message = generation.generated_text
+                    result.field_replacements = replacements
+                    result.status = "generated"
+                    result.error_message = None
 
-                generated_count += 1
-                logger.info(f"Generated row {result.row_index}")
+                    generated_count += 1
+                    logger.info(f"[{idx + 1}/{len(results)}] Generated row {result.row_index}")
 
-            except Exception as e:
-                logger.error(f"Error generating row {result.row_index}: {e}")
-                result.status = "failed"
-                result.error_message = str(e)
-                failed_count += 1
+                except Exception as e:
+                    logger.error(f"Error generating row {result.row_index}: {e}", exc_info=True)
+                    result.status = "failed"
+                    result.error_message = str(e)
+                    failed_count += 1
 
-            # Update progress
-            db.commit()
+                # Update progress in database
+                async_db.commit()
 
-            # Small delay to avoid rate limiting
-            await asyncio.sleep(0.1)
+                # Small delay to avoid rate limiting
+                await asyncio.sleep(0.1)
 
-        # Update bulk generation status
-        bulk_gen.generated_count = generated_count
-        bulk_gen.failed_count = failed_count
-        bulk_gen.status = "completed" if failed_count == 0 else "completed"
-        bulk_gen.temperature = str(temperature)
-        bulk_gen.max_tokens = max_tokens
-        bulk_gen.model_variant = model_variant
+            # Final update: set completed status
+            bulk_gen.generated_count = generated_count
+            bulk_gen.failed_count = failed_count
+            bulk_gen.status = "completed"
+            bulk_gen.temperature = str(temperature)
+            bulk_gen.max_tokens = max_tokens
+            bulk_gen.model_variant = model_variant
 
-        db.commit()
-        logger.info(
-            f"Bulk generation {bulk_gen_id} completed: {generated_count} generated, {failed_count} failed"
-        )
+            async_db.commit()
+            logger.info(
+                f"✓ Bulk generation {bulk_gen_id} completed: {generated_count} generated, {failed_count} failed"
+            )
 
-        return bulk_gen
+            return bulk_gen
+
+        except Exception as e:
+            logger.error(f"Fatal error in bulk generation {bulk_gen_id}: {e}", exc_info=True)
+            bulk_gen = async_db.query(BulkGeneration).filter(BulkGeneration.id == bulk_gen_id).first()
+            if bulk_gen:
+                bulk_gen.status = "failed"
+                async_db.commit()
+            raise
+        finally:
+            async_db.close()
 
     def get_bulk_generation_progress(
         self, db: Session, bulk_gen_id: UUID

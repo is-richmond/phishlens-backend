@@ -90,6 +90,8 @@ class BulkGenerationDetailResponse(BaseModel):
     scenario_id: UUID
     template_id: Optional[UUID]
     field_mapping: Dict[str, str]
+    column_headers: List[str] = []  # Excel column headers
+    preview_rows: List[Dict[str, Any]] = []  # First 3 sample rows
     total_rows: int
     generated_count: int
     failed_count: int
