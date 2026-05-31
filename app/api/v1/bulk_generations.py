@@ -7,10 +7,10 @@ Endpoints for bulk generation from Excel files.
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, get_client_ip
 from app.models.user import User
 from app.models.bulk_generation import BulkGeneration, BulkGenerationResult
 from app.models.campaign import Campaign
@@ -31,8 +31,8 @@ from app.schemas.distribution import (
 from app.services.bulk_generation_service import bulk_generation_service
 from app.services.excel_service import excel_service
 from app.services.distribution_service import distribution_service
+from app.services.audit import log_action
 from app.core.logging import get_logger
-import asyncio
 
 logger = get_logger("bulk_generations_router")
 
@@ -409,6 +409,7 @@ async def delete_bulk_generation(
 async def distribute_bulk_messages(
     bulk_generation_id: UUID,
     request: BulkDistributeRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -487,11 +488,11 @@ async def distribute_bulk_messages(
         # Optionally send immediately
         if request.send_immediately:
             logger.info(f"Starting immediate distribution for {distributions_created} recipients")
-            asyncio.create_task(
-                distribution_service.send_pending_distributions(
-                    db=db,
-                    batch_size=int(distributions_created),
-                )
+            # Use BackgroundTasks for proper async handling in FastAPI
+            background_tasks.add_task(
+                _send_distributions_background,
+                bulk_generation_id=bulk_generation_id,
+                batch_size=int(distributions_created),
             )
             status_msg = "sending_in_background"
         else:
@@ -522,3 +523,41 @@ async def distribute_bulk_messages(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating distributions: {str(e)}"
         )
+
+
+def _send_distributions_background(bulk_generation_id: UUID, batch_size: int) -> None:
+    """
+    Background task to send pending distributions.
+    This function runs in the background after the endpoint returns.
+    """
+    from app.database import SessionLocal
+    
+    db = SessionLocal()
+    try:
+        logger.info(f"[Background Task] Starting distribution send for bulk_generation {bulk_generation_id}")
+        
+        import asyncio
+        # Create a new event loop for this background task
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            result = loop.run_until_complete(
+                distribution_service.send_pending_distributions(
+                    db=db,
+                    batch_size=batch_size,
+                )
+            )
+            logger.info(
+                f"[Background Task] Distribution complete: "
+                f"sent={result.get('sent', 0)}, "
+                f"failed={result.get('failed', 0)}, "
+                f"remaining={result.get('pending', 0)}"
+            )
+        finally:
+            loop.close()
+            
+    except Exception as e:
+        logger.error(f"[Background Task] Error sending distributions: {e}", exc_info=True)
+    finally:
+        db.close()
