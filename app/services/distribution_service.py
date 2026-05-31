@@ -21,6 +21,7 @@ from app.models.generation import Generation
 from app.models.scenario import Scenario
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.generation_service import format_text_to_html
 
 logger = get_logger("distribution_service")
 
@@ -54,6 +55,10 @@ class DistributionService:
             
             if not settings.smtp_user or not settings.smtp_password or not settings.email_from:
                 raise ValueError("SMTP configuration not complete (user, password, or from address missing)")
+            
+            # Convert plain text to HTML if needed
+            if html:
+                body = format_text_to_html(body)
             
             # Create message
             msg = MIMEMultipart("alternative")
@@ -110,11 +115,15 @@ class DistributionService:
             if not settings.sendgrid_api_key or not settings.sendgrid_from:
                 raise ValueError("SendGrid configuration not complete (API key or from address missing)")
             
+            # Convert plain text to HTML if needed
+            if html:
+                body = format_text_to_html(body)
+            
             message = Mail(
                 from_email=settings.sendgrid_from,
                 to_emails=recipient_email,
                 subject=subject,
-                plain_text_content=body if not html else None,
+                plain_text_content=None,
                 html_content=body if html else None,
             )
             

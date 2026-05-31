@@ -31,6 +31,61 @@ logger = get_logger("generation_service")
 WATERMARK = "[SIMULATION - AUTHORIZED SECURITY RESEARCH ONLY]"
 
 
+def format_text_to_html(text: str) -> str:
+    """
+    Convert plain text to formatted HTML with proper spacing and paragraphs.
+    
+    Handles:
+    - Double newlines as paragraph breaks
+    - Single newlines as line breaks
+    - Escapes HTML special characters
+    - Maintains basic formatting
+    
+    Args:
+        text: Plain text message
+        
+    Returns:
+        HTML formatted text
+    """
+    if not text:
+        return ""
+    
+    # Escape HTML special characters
+    text = text.replace("&", "&amp;")
+    text = text.replace("<", "&lt;")
+    text = text.replace(">", "&gt;")
+    text = text.replace('"', "&quot;")
+    text = text.replace("'", "&#39;")
+    
+    # Split by double newlines to create paragraphs
+    paragraphs = text.split("\n\n")
+    
+    html_parts = []
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        
+        # Replace single newlines within paragraph with <br>
+        para = para.replace("\n", "<br>")
+        
+        # Wrap paragraph in <p> tag with styling
+        html_parts.append(f"<p style=\"margin: 0 0 12px 0; line-height: 1.6;\">{para}</p>")
+    
+    # Create complete HTML document with proper styling
+    if html_parts:
+        body_html = "\n".join(html_parts)
+        return f"""<html>
+<body style="font-family: Arial, sans-serif; font-size: 14px; color: #333; background-color: #f5f5f5; padding: 20px;">
+<div style="max-width: 600px; background-color: white; padding: 20px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+{body_html}
+</div>
+</body>
+</html>"""
+    
+    return ""
+
+
 class GenerationService:
     """Orchestrates phishing message generation and evaluation."""
 
