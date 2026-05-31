@@ -4,6 +4,7 @@ Bulk Generation Router
 Endpoints for bulk generation from Excel files.
 """
 
+import asyncio
 from typing import Optional
 from uuid import UUID
 
