@@ -86,6 +86,9 @@ class BulkGenerationService:
 
         db.commit()
         logger.info(f"Created BulkGeneration {bulk_gen.id} with {len(rows)} rows")
+        logger.info(f"  Filename: {original_filename}")
+        logger.info(f"  Title: {title}")
+        logger.info(f"  Scenario: {scenario_id}")
 
         return bulk_gen
 
@@ -210,6 +213,7 @@ class BulkGenerationService:
                     )
 
                     logger.debug(f"Row {result.row_index}: replacements = {replacements}")
+                    logger.info(f"[GENERATION] Row {result.row_index}: input_data={result.input_data} → replacements={replacements}")
 
                     # Generate message with replacements
                     generation = generation_service.generate(

@@ -293,6 +293,10 @@ class DistributionService:
             if not bulk_gen:
                 return 0, "Bulk generation not found"
             
+            logger.info(f"[CREATE_DISTRIBUTIONS] Processing bulk_generation_id={bulk_generation_id}")
+            logger.info(f"[CREATE_DISTRIBUTIONS] Title: {bulk_gen.title}")
+            logger.info(f"[CREATE_DISTRIBUTIONS] Original filename: {bulk_gen.original_filename}")
+            
             # Get all generated results (exclude failed)
             results = db.query(BulkGenerationResult).filter(
                 and_(
@@ -301,20 +305,27 @@ class DistributionService:
                 )
             ).all()
             
+            logger.info(f"[CREATE_DISTRIBUTIONS] Found {len(results)} generated results")
+            
             if not results:
                 logger.warning(f"No generated results found for bulk generation {bulk_generation_id}")
                 return 0, "No generated results found"
             
             # Create distributions
             distributions_created = 0
+            email_list = []
+            
             for result in results:
                 try:
                     # Extract recipient info from field_replacements
                     email = result.field_replacements.get("[TARGET_EMAIL]")
                     name = result.field_replacements.get("[TARGET_NAME]")
                     
+                    email_list.append(email)
+                    logger.info(f"[CREATE_DISTRIBUTIONS] Row {result.row_index}: email={email}, name={name}, input_data={result.input_data}")
+                    
                     if not email:
-                        logger.warning(f"Row {result.row_index}: No email found in field_replacements")
+                        logger.warning(f"Row {result.row_index}: No email found in field_replacements: {result.field_replacements}")
                         continue
                     
                     # Validate generated content
@@ -372,6 +383,7 @@ class DistributionService:
             
             db.commit()
             logger.info(f"Created {distributions_created} distributions and generations")
+            logger.info(f"[CREATE_DISTRIBUTIONS] All emails used: {email_list}")
             return distributions_created, None
             
         except Exception as e:

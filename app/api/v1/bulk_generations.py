@@ -451,6 +451,11 @@ async def distribute_bulk_messages(
             )
         
         logger.info(f"Creating distributions for bulk generation {bulk_generation_id}")
+        logger.info(f"  - User: {current_user.id}")
+        logger.info(f"  - Title: {bulk_gen.title}")
+        logger.info(f"  - Total rows: {bulk_gen.total_rows}")
+        logger.info(f"  - Scenario: {bulk_gen.scenario_id}")
+        logger.info(f"  - Status: {bulk_gen.status}")
         
         # Create campaign
         campaign_name = request.campaign_name or f"Distribution: {bulk_gen.title}"
