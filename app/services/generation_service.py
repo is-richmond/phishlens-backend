@@ -176,15 +176,13 @@ class GenerationService:
         # Step 5: Evaluate realism (secondary LLM call)
         scenario_context = prompt_service.build_scenario_context_summary(scenario)
         try:
-            logger.info(f"Starting evaluation for generation with model {model_variant}")
             eval_result = llm_service.evaluate(
                 generated_message=f"Subject: {subject}\n\n{body}" if subject else body,
                 scenario_context=scenario_context,
                 model_variant=model_variant,
             )
-            logger.info(f"Evaluation successful: score={eval_result.get('overall_score')}")
         except Exception as e:
-            logger.warning(f"Evaluation failed: {str(e)}", exc_info=True)
+            logger.warning("Evaluation failed, using defaults", error=str(e))
             eval_result = {
                 "overall_score": 5.0,
                 "dimensional_scores": {
@@ -193,7 +191,7 @@ class GenerationService:
                     "technical_plausibility": 5.0,
                     "contextual_relevance": 5.0,
                 },
-                "analysis": "Evaluation could not be completed. Please try re-evaluating.",
+                "analysis": "Evaluation could not be completed.",
                 "generation_time_ms": 0,
             }
 

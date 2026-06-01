@@ -58,18 +58,6 @@ class LLMService:
         temperature: float = 0.7,
         max_tokens: int = 1024,
     ) -> dict:
-        """Generate content using the Gemini API.
-
-        Args:
-            system_prompt: The system instruction (role definition).
-            user_prompt: The constructed user prompt.
-            model_variant: Which Gemini model to use.
-            temperature: Creativity parameter (0.0-2.0).
-            max_tokens: Maximum output tokens.
-
-        Returns:
-            dict with keys: text, model_used, generation_time_ms, finish_reason
-        """
         if not settings.gemini_api_key:
             raise ValueError("GEMINI_API_KEY is not configured")
 
@@ -223,10 +211,12 @@ Respond ONLY with valid JSON in this exact format:
         if json_match:
             json_str = json_match.group(1)
         else:
-            # Try to find raw JSON
-            json_match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
+            # Try to find raw JSON - look for the outermost braces
+            first_brace = text.find('{')
+            last_brace = text.rfind('}')
+            
+            if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                json_str = text[first_brace:last_brace + 1]
             else:
                 logger.warning("Could not parse evaluation JSON, using defaults")
                 return self._default_evaluation(generation_time_ms)
